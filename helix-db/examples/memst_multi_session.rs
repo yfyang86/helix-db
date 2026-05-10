@@ -22,6 +22,11 @@ use std::error::Error;
 use tempfile::TempDir;
 use uuid::Uuid;
 
+/// Working-memory token budget used by the demo. Alice's three semantic
+/// memories add up to ~33 tokens with the default counter, so a budget of
+/// 25 reliably trips the compaction branch below.
+const WORKING_BUDGET: u32 = 25;
+
 fn main() -> Result<(), Box<dyn Error>> {
     println!("=== MemSt multi-session demo ===\n");
 
@@ -41,7 +46,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // 3. Use a small working-memory budget so compaction triggers visibly.
     let cfg = LifecycleConfig {
-        working_memory_max_tokens: 60,
+        working_memory_max_tokens: WORKING_BUDGET,
         promotion_access_threshold: 2,
         ..LifecycleConfig::default()
     };
@@ -79,7 +84,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!(
         "\nalice working tokens: {}/{}",
         usage.get(&MemoryTier::Working).copied().unwrap_or(0),
-        60
+        WORKING_BUDGET
     );
     if lifecycle.is_budget_exceeded(&alice_working, MemoryTier::Working) {
         println!("budget exceeded -> selecting compaction candidates");
