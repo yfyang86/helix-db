@@ -215,8 +215,10 @@ fn uat_ms_03_budget_pressure_triggers_compaction_candidates() {
     let store = SessionStore::init(dir.path()).unwrap();
 
     // A small working budget so even Alice's three semantic memories overflow.
+    // ConfiguredTokenCounter::default() yields ~13/10/10 tokens for the three
+    // memories (sum = 33), so a 25-token budget is comfortably exceeded.
     let cfg = LifecycleConfig {
-        working_memory_max_tokens: 60,
+        working_memory_max_tokens: 25,
         promotion_access_threshold: 2,
         ..LifecycleConfig::default()
     };
@@ -227,8 +229,8 @@ fn uat_ms_03_budget_pressure_triggers_compaction_candidates() {
     let working = store.get_tier(alice_id, MemoryTier::Working).unwrap();
     let total: u32 = working.iter().filter_map(|m| m.token_estimate).sum();
     assert!(
-        total > 60,
-        "alice's three memories should add up to more than the 60-token budget; got {total}"
+        total > 25,
+        "alice's three memories should add up to more than the 25-token budget; got {total}"
     );
     assert!(lc.is_budget_exceeded(&working, MemoryTier::Working));
 
