@@ -214,6 +214,25 @@ fn manifest_remove_session() {
 }
 
 #[test]
+fn manifest_remove_preserves_order_of_remaining_sessions() {
+    // Regression test for the swap_remove -> shift_remove fix.
+    let mut m = Manifest::new();
+    let a = summary("a");
+    let b = summary("b");
+    let c = summary("c");
+    let (a_id, b_id, c_id) = (a.id, b.id, c.id);
+    m.upsert_session(a);
+    m.upsert_session(b);
+    m.upsert_session(c);
+
+    m.remove_session(&b_id); // remove the middle entry
+
+    // a should still precede c; with swap_remove, c would move into b's slot.
+    let ordered: Vec<_> = m.sessions.keys().copied().collect();
+    assert_eq!(ordered, vec![a_id, c_id]);
+}
+
+#[test]
 fn manifest_default_schema_version() {
     let m = Manifest::new();
     assert_eq!(m.schema_version, "1.0.0");
@@ -229,7 +248,6 @@ fn memory_item_record_access_increments_and_updates_recency() {
     let mut m = MemoryItem::new("x", "test");
     assert_eq!(m.access_count, 0);
     let before = m.last_accessed;
-    std::thread::sleep(std::time::Duration::from_millis(2));
     m.record_access();
     assert_eq!(m.access_count, 1);
     assert!(m.last_accessed >= before);
