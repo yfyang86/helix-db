@@ -35,13 +35,12 @@ use std::io::{self, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
+use super::SCHEMA_VERSION;
 use super::error::{Error, Result};
 use super::types::{
     Manifest, MemoryItem, MemoryQuery, MemoryTier, Message, Operation, OperationQuery,
     OperationType, Role, SessionMetadata, SessionSummary,
 };
-
-const SCHEMA_VERSION: &str = "1.0.0";
 
 /// Index entry for message lookup.
 ///
