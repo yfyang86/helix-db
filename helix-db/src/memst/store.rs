@@ -22,7 +22,6 @@
 //!         working.bin
 //!         short.bin
 //!         long.bin
-//!       extractions/
 //!   attachments/
 //! ```
 
@@ -194,7 +193,6 @@ impl SessionStore {
         )?;
         fs::write(session_path.join("operations.log"), "")?;
         fs::create_dir_all(session_path.join("memory"))?;
-        fs::create_dir_all(session_path.join("extractions"))?;
 
         let mut manifest = self.read_manifest()?;
         manifest.upsert_session(SessionSummary {
@@ -480,15 +478,15 @@ impl SessionStore {
         session_id: Uuid,
         tier: MemoryTier,
         item: MemoryItem,
-    ) -> Result<MemoryItem> {
+    ) -> Result<()> {
         let tier_path = self.memory_tier_path(session_id, tier);
         if let Some(parent) = tier_path.parent() {
             fs::create_dir_all(parent)?;
         }
         let mut memories = self.load_memories(&tier_path)?;
-        memories.push(item.clone());
+        memories.push(item);
         self.save_memories(&tier_path, &memories)?;
-        Ok(item)
+        Ok(())
     }
 
     /// Load every memory in a tier file.
@@ -739,13 +737,14 @@ mod tests {
         let m = MemoryItem::new("user prefers tokio", "test")
             .with_memory_type(MemoryType::Semantic)
             .with_tag("rust");
-        store.add_memory(id, MemoryTier::Working, m.clone()).unwrap();
+        let mid = m.id;
+        store.add_memory(id, MemoryTier::Working, m).unwrap();
 
         let q = MemoryQuery::new().with_keyword("tokio").with_tag("rust");
         let hits = store.retrieve_memories(id, q).unwrap();
         assert_eq!(hits.len(), 1);
 
-        assert!(store.promote_memory(id, m.id, MemoryTier::LongTerm).unwrap());
+        assert!(store.promote_memory(id, mid, MemoryTier::LongTerm).unwrap());
         assert!(store.get_tier(id, MemoryTier::Working).unwrap().is_empty());
         assert_eq!(store.get_tier(id, MemoryTier::LongTerm).unwrap().len(), 1);
     }
