@@ -20,6 +20,13 @@ pub mod objects;
 pub mod store;
 pub mod types;
 
+/// Schema version stamped into newly created manifests and checked by
+/// [`store::SessionStore::open`]. Bump this whenever the on-disk layout
+/// changes incompatibly. The constant lives here (instead of being
+/// duplicated in `store.rs` and `types.rs`) so a bump is impossible to
+/// forget halfway.
+pub(crate) const SCHEMA_VERSION: &str = "1.0.0";
+
 pub use error::{Error, Result};
 pub use memory::{
     CompactionCheckpoint, ConfiguredTokenCounter, LifecycleConfig, MemoryLifecycle, MemoryState,
