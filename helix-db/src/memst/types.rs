@@ -250,9 +250,10 @@ impl Manifest {
         self.sessions.insert(summary.id, summary);
     }
 
-    /// Remove a session from the index.
+    /// Remove a session from the index, preserving the insertion order of the
+    /// remaining entries.
     pub fn remove_session(&mut self, id: &Uuid) {
-        self.sessions.swap_remove(id);
+        self.sessions.shift_remove(id);
     }
 
     /// Look up a session summary by id.
