@@ -342,7 +342,10 @@ impl SessionStore {
             .collect())
     }
 
-    /// Read the message index for a session.
+    /// Read the message index for a session. Returns
+    /// [`Error::Corruption`] on a malformed timestamp or role rather than
+    /// silently fabricating a value, so the caller can surface index
+    /// damage to operators.
     pub fn read_message_index(&self, session_id: Uuid) -> Result<Vec<MessageIndexEntry>> {
         let index_path = self.session_path(session_id).join("messages.idx");
         if !index_path.exists() {
@@ -357,24 +360,37 @@ impl SessionStore {
                 continue;
             }
             let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() >= 5 {
-                let entry = MessageIndexEntry {
-                    message_id: Uuid::parse_str(parts[0])?,
-                    byte_offset: parts[1].parse::<u64>()?,
-                    byte_length: parts[2].parse::<u64>()?,
-                    timestamp: chrono::DateTime::parse_from_rfc3339(parts[3])
-                        .map(|d| d.with_timezone(&chrono::Utc))
-                        .unwrap_or_else(|_| chrono::Utc::now()),
-                    role: match parts[4] {
-                        "system" => Role::System,
-                        "user" => Role::User,
-                        "assistant" => Role::Assistant,
-                        "tool" => Role::Tool,
-                        _ => Role::User,
-                    },
-                };
-                entries.push(entry);
+            if parts.len() < 5 {
+                return Err(Error::Corruption(format!(
+                    "messages.idx line has fewer than 5 columns: {line}"
+                )));
             }
+            let message_id = Uuid::parse_str(parts[0])?;
+            let byte_offset = parts[1].parse::<u64>()?;
+            let byte_length = parts[2].parse::<u64>()?;
+            let timestamp = chrono::DateTime::parse_from_rfc3339(parts[3])
+                .map(|d| d.with_timezone(&chrono::Utc))
+                .map_err(|_| {
+                    Error::Corruption(format!("bad timestamp in messages.idx: {}", parts[3]))
+                })?;
+            let role = match parts[4] {
+                "system" => Role::System,
+                "user" => Role::User,
+                "assistant" => Role::Assistant,
+                "tool" => Role::Tool,
+                other => {
+                    return Err(Error::Corruption(format!(
+                        "unknown role in messages.idx: {other}"
+                    )));
+                }
+            };
+            entries.push(MessageIndexEntry {
+                message_id,
+                byte_offset,
+                byte_length,
+                timestamp,
+                role,
+            });
         }
         Ok(entries)
     }
@@ -674,6 +690,43 @@ mod tests {
         assert_eq!(msgs.len(), 2);
         let idx = store.read_message_index(id).unwrap();
         assert_eq!(idx.len(), 2);
+    }
+
+    #[test]
+    fn read_message_index_rejects_unknown_role() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let store = SessionStore::init(dir.path()).unwrap();
+        let id = store
+            .create_session(SessionMetadata::new("s1", "gpt-4"))
+            .unwrap();
+
+        // Hand-write a malformed index line. The corruption error must surface
+        // rather than silently fabricating a `User` role.
+        let idx_path = store.session_path(id).join("messages.idx");
+        std::fs::write(
+            &idx_path,
+            "# header\n550e8400-e29b-41d4-a716-446655440000 0 10 2024-01-01T00:00:00Z robot\n",
+        )
+        .unwrap();
+        let err = store.read_message_index(id).err().expect("expected error");
+        assert!(err.to_string().contains("unknown role"), "got: {err}");
+    }
+
+    #[test]
+    fn read_message_index_rejects_bad_timestamp() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let store = SessionStore::init(dir.path()).unwrap();
+        let id = store
+            .create_session(SessionMetadata::new("s1", "gpt-4"))
+            .unwrap();
+        let idx_path = store.session_path(id).join("messages.idx");
+        std::fs::write(
+            &idx_path,
+            "# header\n550e8400-e29b-41d4-a716-446655440000 0 10 not-a-date user\n",
+        )
+        .unwrap();
+        let err = store.read_message_index(id).err().expect("expected error");
+        assert!(err.to_string().contains("bad timestamp"), "got: {err}");
     }
 
     #[test]
