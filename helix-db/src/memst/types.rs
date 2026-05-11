@@ -235,11 +235,12 @@ pub struct Manifest {
 }
 
 impl Manifest {
-    /// Create a new manifest.
+    /// Create a new manifest stamped with the current crate version and the
+    /// shared [`super::SCHEMA_VERSION`] constant.
     pub fn new() -> Self {
         Self {
             version: env!("CARGO_PKG_VERSION").to_string(),
-            schema_version: "1.0.0".to_string(),
+            schema_version: super::SCHEMA_VERSION.to_string(),
             last_compaction: None,
             sessions: indexmap::IndexMap::new(),
         }
