@@ -137,6 +137,17 @@ impl Default for LifecycleConfig {
 /// Tracks the current [`MemoryState`] of each memory id, records every
 /// transition, and exposes helpers for selecting candidates for promotion or
 /// compaction.
+///
+/// # Budget bookkeeping
+///
+/// [`Self::calculate_token_usage`] and [`Self::is_budget_exceeded`] only count
+/// memories whose id has been seen via [`Self::register`]. The companion
+/// [`super::store::SessionStore::add_memory`] does **not** auto-register;
+/// callers must either call `register` for each new memory, or accept that
+/// unregistered memories are invisible to budget pressure (their
+/// `token_estimate` is never added to the relevant tier's usage). The
+/// `examples/memst_multi_session.rs` demo and the multi-session UAT both
+/// follow the register-then-add pattern.
 pub struct MemoryLifecycle {
     config: LifecycleConfig,
     states: HashMap<String, MemoryState>,
@@ -161,6 +172,8 @@ impl MemoryLifecycle {
     }
 
     /// Register a memory with an initial tier and return its computed state.
+    /// Must be called for every memory that should participate in budget /
+    /// compaction decisions; see the type-level docs.
     pub fn register(&mut self, memory_id: &str, initial_tier: MemoryTier) -> MemoryState {
         let state = match initial_tier {
             MemoryTier::Working => MemoryState::Active,
@@ -309,7 +322,9 @@ impl MemoryLifecycle {
         &self.transitions
     }
 
-    /// Sum of `token_estimate` per tier across the supplied memories.
+    /// Sum of `token_estimate` per tier across the supplied memories. Memories
+    /// that have not been [`Self::register`]-ed are silently skipped; see the
+    /// type-level docs.
     pub fn calculate_token_usage(&self, memories: &[MemoryItem]) -> HashMap<MemoryTier, u32> {
         let mut usage: HashMap<MemoryTier, u32> = HashMap::new();
 
@@ -331,7 +346,8 @@ impl MemoryLifecycle {
         usage
     }
 
-    /// Whether `tier` is over its budget for the supplied memories.
+    /// Whether `tier` is over its budget for the supplied memories. Only
+    /// registered memories contribute; see the type-level docs.
     pub fn is_budget_exceeded(&self, memories: &[MemoryItem], tier: MemoryTier) -> bool {
         let usage = self.calculate_token_usage(memories);
         let current = usage.get(&tier).copied().unwrap_or(0);
@@ -504,5 +520,18 @@ mod tests {
         let counter = ConfiguredTokenCounter::new();
         let n = counter.count("hello world this is a test");
         assert!(n > 6 && n < 20);
+    }
+
+    #[test]
+    fn budget_invisibility_for_unregistered_memories() {
+        // Documents the contract: unregistered memories don't count toward
+        // any tier's budget. If we ever switch to auto-registration this
+        // test will need to flip.
+        let lifecycle = MemoryLifecycle::new(LifecycleConfig {
+            working_memory_max_tokens: 10,
+            ..LifecycleConfig::default()
+        });
+        let big = MemoryItem::new("x", "test").with_token_estimate(1_000);
+        assert!(!lifecycle.is_budget_exceeded(&[big], MemoryTier::Working));
     }
 }

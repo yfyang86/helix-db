@@ -44,7 +44,9 @@ use super::types::{
 /// Index entry for message lookup.
 ///
 /// Each entry corresponds to a line in `messages.idx` and points at a record
-/// inside `messages.bin`.
+/// inside `messages.bin`. The on-disk timestamp is RFC3339 with **second**
+/// resolution, so two messages within the same second compare equal in the
+/// index even though `messages.bin` retains sub-second precision.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MessageIndexEntry {
     /// Message UUID
@@ -53,7 +55,7 @@ pub struct MessageIndexEntry {
     pub byte_offset: u64,
     /// Byte length of the message record
     pub byte_length: u64,
-    /// Timestamp
+    /// Timestamp (second resolution)
     pub timestamp: chrono::DateTime<chrono::Utc>,
     /// Role for quick filtering
     pub role: Role,
@@ -80,8 +82,25 @@ impl MessageIndexEntry {
 
 /// Session storage with the file-based layout described in the module docs.
 ///
-/// Holds an exclusive file lock on `store.lock` for the lifetime of the
-/// instance, ensuring only one process mutates a given store at a time.
+/// # Concurrency
+///
+/// `SessionStore::init` and `SessionStore::open` acquire an **exclusive
+/// process-level** lock on `store.lock` (via `fs2`), so only one process can
+/// mutate a given store at a time. Inside a single process this type is
+/// **not** safe for concurrent mutation: methods like [`Self::append_message`],
+/// [`Self::add_memory`] and [`Self::access_memory`] read-modify-write session
+/// files behind a `&self` receiver, so two threads sharing an
+/// `Arc<SessionStore>` can race and corrupt tier files. Wrap the store in
+/// your own `Mutex` if you need shared mutable access from multiple threads.
+///
+/// # Durability
+///
+/// Writes are not crash-atomic. [`Self::append_message`] performs four
+/// sequential file writes (`messages.bin`, `messages.idx`, `metadata.json`,
+/// `manifest.json`); a crash between any two leaves the store inconsistent.
+/// [`Self::promote_memory`] similarly rewrites two tier files
+/// non-atomically. Treat `messages.bin` as the authoritative log -- the
+/// index can be rebuilt from it.
 pub struct SessionStore {
     base_path: PathBuf,
     manifest_path: PathBuf,
