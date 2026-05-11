@@ -525,7 +525,10 @@ impl MemoryItem {
         self
     }
 
-    /// Record an access (bumps `access_count`, updates recency, recomputes importance).
+    /// Record an access: bumps `access_count`, refreshes `last_accessed`,
+    /// and recomputes `importance`. The recency component of importance is
+    /// measured from `created_at` (not `last_accessed`), so accessing a
+    /// memory does not artificially reset its time-decay term to "fresh".
     pub fn record_access(&mut self) {
         self.access_count += 1;
         self.last_accessed = Utc::now();
@@ -534,11 +537,14 @@ impl MemoryItem {
 
     fn recalculate_importance(&mut self) {
         let access_factor = (self.access_count as f32 + 1.0).ln();
-        let recency_factor =
-            (Utc::now() - self.last_accessed).num_seconds() as f32 / 86400.0; // days
+        // Use creation time, not last_accessed. record_access() just set
+        // last_accessed to Utc::now(), which would make (-recency).exp()
+        // always evaluate to 1.0 - silently turning the recency term into
+        // a constant 0.2.
+        let recency_days = (Utc::now() - self.created_at).num_seconds() as f32 / 86400.0;
         self.importance = 0.5 * self.confidence
             + 0.3 * access_factor.min(3.0) / 3.0
-            + 0.2 * (-recency_factor).exp();
+            + 0.2 * (-recency_days).exp();
     }
 }
 
